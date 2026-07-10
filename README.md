@@ -25,6 +25,15 @@
 
 如果仍然无法打开，可以在“系统设置 -> 隐私与安全性”中点击“仍要打开”。只有在确认下载来源可信时，才建议使用这个操作。
 
+如果右键选择“打开”仍然无法启动，可以在终端执行下面的命令。这里假设你已经把 App 放进了“应用程序”文件夹：
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/划词朗读器.app"
+open "/Applications/划词朗读器.app"
+```
+
+这会移除该 App 的下载隔离标记，不需要 `sudo`。如果你把 App 放在其他位置，请把命令中的路径替换成实际路径。只对确认来源可信的文件执行此命令。
+
 首次启动后，请在：
 
 ```text
@@ -114,6 +123,15 @@ Release 会包含：
 Features include native macOS speech, optional DeepSeek translation, editable prompts, Keychain storage for the API key, global shortcuts, and a Universal build for Apple Silicon and Intel Macs.
 
 Download the `.dmg` or `.zip` package from [Releases](../../releases). The app is not signed with an Apple Developer ID and is not notarized; it uses an ad-hoc signature. On first launch, right-click the app and choose **Open**, then grant Accessibility permission in **System Settings -> Privacy & Security -> Accessibility**.
+
+If macOS still refuses to open it after using **Open**, run the following in Terminal after moving the app to the Applications folder:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/划词朗读器.app"
+open "/Applications/划词朗读器.app"
+```
+
+This removes the download quarantine flag for this app. Use it only when you trust the download source.
 
 ## License
 
