@@ -11,6 +11,8 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     private let translationPopover = TranslationPopover()
     private var globalMouseMonitor: Any?
     private var globalKeyMonitor: Any?
+    private var globalPopoverDismissMonitor: Any?
+    private var localPopoverDismissMonitor: Any?
     private var isEnabled = true
     private var isTranslationEnabled = UserSettings.isTranslationEnabled
     private var lastSpokenText = ""
@@ -27,6 +29,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         requestAccessibilityPermissionIfNeeded()
         startMonitoringSelection()
         startMonitoringTranslationShortcut()
+        startMonitoringPopoverDismissal()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -35,6 +38,12 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         }
         if let globalKeyMonitor {
             NSEvent.removeMonitor(globalKeyMonitor)
+        }
+        if let globalPopoverDismissMonitor {
+            NSEvent.removeMonitor(globalPopoverDismissMonitor)
+        }
+        if let localPopoverDismissMonitor {
+            NSEvent.removeMonitor(localPopoverDismissMonitor)
         }
         translationTask?.cancel()
     }
@@ -57,9 +66,10 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         let enabledItem = NSMenuItem(
             title: "划词后自动朗读",
             action: #selector(toggleEnabled),
-            keyEquivalent: ""
+            keyEquivalent: "r"
         )
         enabledItem.target = self
+        enabledItem.keyEquivalentModifierMask = [.option]
         enabledItem.state = isEnabled ? .on : .off
         menu.addItem(enabledItem)
 
@@ -147,18 +157,38 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
 
     private func startMonitoringTranslationShortcut() {
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 17 else {
-                return
-            }
-
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard flags == .option else {
                 return
             }
 
             Task { @MainActor [weak self] in
-                self?.toggleTranslationEnabled()
+                switch event.keyCode {
+                case 15:
+                    self?.toggleEnabled()
+                case 17:
+                    self?.toggleTranslationEnabled()
+                default:
+                    break
+                }
             }
+        }
+    }
+
+    private func startMonitoringPopoverDismissal() {
+        let mouseDownEvents: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        globalPopoverDismissMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseDownEvents) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.translationPopover.hide()
+            }
+        }
+
+        localPopoverDismissMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseDownEvents) { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.translationPopover.hide()
+            }
+            return event
         }
     }
 
@@ -409,7 +439,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     }
 
     private func promptForAPIKey() -> Bool {
-        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
         field.placeholderString = "sk-..."
 
         let alert = NSAlert()
