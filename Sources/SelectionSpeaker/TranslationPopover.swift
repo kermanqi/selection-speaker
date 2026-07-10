@@ -9,7 +9,7 @@ final class TranslationPopover {
         show("翻译中...", at: location, autoDismissAfter: nil)
     }
 
-    func show(text: String, at location: NSPoint, autoDismissAfter seconds: TimeInterval = 6) {
+    func show(text: String, at location: NSPoint, autoDismissAfter seconds: TimeInterval? = nil) {
         show(text, at: location, autoDismissAfter: seconds)
     }
 

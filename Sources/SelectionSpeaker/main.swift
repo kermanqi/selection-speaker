@@ -52,10 +52,6 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
 
     private func configureStatusItem() {
         if let button = statusItem.button {
-            button.image = NSImage(
-                systemSymbolName: "speaker.wave.2.fill",
-                accessibilityDescription: "Selection Speaker"
-            )
             button.toolTip = "划词朗读器"
         }
 
@@ -63,6 +59,8 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     }
 
     private func refreshMenu() {
+        refreshStatusItemIcon()
+
         let menu = NSMenu()
 
         let enabledItem = NSMenuItem(
@@ -142,6 +140,18 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    private func refreshStatusItemIcon() {
+        guard let button = statusItem.button else {
+            return
+        }
+
+        button.image = StatusIconRenderer.image(
+            readingEnabled: isEnabled,
+            translationEnabled: isTranslationEnabled
+        )
+        button.toolTip = "划词朗读器：朗读\(isEnabled ? "开" : "关")，翻译\(isTranslationEnabled ? "开" : "关")"
     }
 
     private func requestAccessibilityPermissionIfNeeded() {
