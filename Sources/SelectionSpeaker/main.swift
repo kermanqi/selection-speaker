@@ -9,8 +9,12 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     private let speaker = AVSpeechSynthesizer()
     private let keychainStore = KeychainCredentialStore()
     private let translationPopover = TranslationPopover()
+    private lazy var preferencesWindowController = PreferencesWindowController { [weak self] in
+        self?.restartGlobalShortcuts()
+        self?.refreshMenu()
+    }
     private var globalMouseMonitor: Any?
-    private var globalKeyMonitor: Any?
+    private var globalHotKeyMonitor: GlobalHotKeyMonitor?
     private var globalPopoverDismissMonitor: Any?
     private var localPopoverDismissMonitor: Any?
     private var isEnabled = true
@@ -28,7 +32,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         configureStatusItem()
         requestAccessibilityPermissionIfNeeded()
         startMonitoringSelection()
-        startMonitoringTranslationShortcut()
+        restartGlobalShortcuts()
         startMonitoringPopoverDismissal()
     }
 
@@ -36,9 +40,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         if let globalMouseMonitor {
             NSEvent.removeMonitor(globalMouseMonitor)
         }
-        if let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-        }
+        globalHotKeyMonitor?.stop()
         if let globalPopoverDismissMonitor {
             NSEvent.removeMonitor(globalPopoverDismissMonitor)
         }
@@ -66,22 +68,32 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         let enabledItem = NSMenuItem(
             title: "划词后自动朗读",
             action: #selector(toggleEnabled),
-            keyEquivalent: "r"
+            keyEquivalent: UserSettings.readingShortcut?.keyEquivalent ?? ""
         )
         enabledItem.target = self
-        enabledItem.keyEquivalentModifierMask = [.option]
+        enabledItem.keyEquivalentModifierMask = UserSettings.readingShortcut?.menuModifierMask ?? []
         enabledItem.state = isEnabled ? .on : .off
         menu.addItem(enabledItem)
 
         let translationItem = NSMenuItem(
             title: "显示中文翻译",
             action: #selector(toggleTranslationEnabled),
-            keyEquivalent: "t"
+            keyEquivalent: UserSettings.translationShortcut?.keyEquivalent ?? ""
         )
         translationItem.target = self
-        translationItem.keyEquivalentModifierMask = [.option]
+        translationItem.keyEquivalentModifierMask = UserSettings.translationShortcut?.menuModifierMask ?? []
         translationItem.state = isTranslationEnabled ? .on : .off
         menu.addItem(translationItem)
+
+        let preferencesItem = NSMenuItem(
+            title: "偏好设置...",
+            action: #selector(showPreferences),
+            keyEquivalent: ""
+        )
+        preferencesItem.target = self
+        menu.addItem(preferencesItem)
+
+        menu.addItem(.separator())
 
         let apiKeyItem = NSMenuItem(
             title: "设置 DeepSeek API Key...",
@@ -155,24 +167,41 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func startMonitoringTranslationShortcut() {
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags == .option else {
-                return
-            }
+    private func restartGlobalShortcuts() {
+        globalHotKeyMonitor?.stop()
+        globalHotKeyMonitor = nil
 
-            Task { @MainActor [weak self] in
-                switch event.keyCode {
-                case 15:
-                    self?.toggleEnabled()
-                case 17:
-                    self?.toggleTranslationEnabled()
-                default:
-                    break
-                }
-            }
+        let registrations = configuredHotKeyRegistrations()
+        guard !registrations.isEmpty else {
+            return
         }
+
+        let monitor = GlobalHotKeyMonitor(registrations: registrations) { [weak self] in
+            self?.toggleEnabled()
+        } onTranslationToggle: { [weak self] in
+            self?.toggleTranslationEnabled()
+        }
+
+        do {
+            try monitor.start()
+            globalHotKeyMonitor = monitor
+        } catch {
+            showMessage("全局快捷键不可用", informativeText: error.localizedDescription)
+        }
+    }
+
+    private func configuredHotKeyRegistrations() -> [GlobalHotKeyMonitor.Registration] {
+        var registrations: [GlobalHotKeyMonitor.Registration] = []
+
+        if let shortcut = UserSettings.readingShortcut {
+            registrations.append(.init(action: .toggleReading, shortcut: shortcut))
+        }
+
+        if let shortcut = UserSettings.translationShortcut {
+            registrations.append(.init(action: .toggleTranslation, shortcut: shortcut))
+        }
+
+        return registrations
     }
 
     private func startMonitoringPopoverDismissal() {
@@ -398,6 +427,10 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     @objc private func setDeepSeekAPIKey() {
         _ = promptForAPIKey()
         refreshMenu()
+    }
+
+    @objc private func showPreferences() {
+        preferencesWindowController.show()
     }
 
     @objc private func setDeepSeekModel() {
