@@ -7,13 +7,28 @@ APP_DIR="$ROOT_DIR/build/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+VERSION="${1:-${VERSION:-1.0}}"
+
+if [[ $# -gt 1 ]]; then
+    print -u2 "usage: $0 [version]"
+    exit 2
+fi
 
 cd "$ROOT_DIR"
-swift build -c release
+
+typeset -a binaries
+for arch in arm64 x86_64; do
+    swift build \
+        -c release \
+        --arch "$arch" \
+        --build-path "$ROOT_DIR/.build/$arch" \
+        --product SelectionSpeaker
+    binaries+=("$ROOT_DIR/.build/$arch/release/SelectionSpeaker")
+done
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
-cp "$ROOT_DIR/.build/release/SelectionSpeaker" "$MACOS_DIR/$APP_NAME"
+lipo -create "${binaries[@]}" -output "$MACOS_DIR/$APP_NAME"
 swift "$ROOT_DIR/scripts/generate-app-icon.swift" "$RESOURCES_DIR/AppIcon.icns"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
@@ -34,9 +49,9 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$VERSION</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
