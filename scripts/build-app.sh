@@ -40,7 +40,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <key>LSUIElement</key>
     <true/>
     <key>NSAppleEventsUsageDescription</key>
-    <string>用于读取当前选中的文本并调用系统语音朗读。</string>
+    <string>用于读取当前选中的文本并调用系统语音朗读，可选发送到翻译服务显示中文翻译。</string>
 </dict>
 </plist>
 PLIST
