@@ -13,8 +13,8 @@ import Testing
     #expect(SelectionTextNormalizer.normalizedText(from: "你好，世界") == nil)
 }
 
-@Test func keepsPronounceableMixedEnglishSelection() {
-    #expect(SelectionTextNormalizer.normalizedText(from: "这个词是 pronunciation") == "这个词是 pronunciation")
+@Test func ignoresSelectionContainingChineseEvenWhenEnglishIsPresent() {
+    #expect(SelectionTextNormalizer.normalizedText(from: "这个词是 pronunciation") == nil)
 }
 
 @Test func limitsVeryLongSelections() {

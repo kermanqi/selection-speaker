@@ -387,7 +387,11 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         translationPopover.showLoading(at: location)
         translationTask = Task { @MainActor in
             do {
-                let client = DeepSeekTranslationClient(apiKey: apiKey, modelName: modelName)
+                let client = DeepSeekTranslationClient(
+                    apiKey: apiKey,
+                    modelName: modelName,
+                    promptConfiguration: UserSettings.promptConfiguration
+                )
                 let translation = try await client.translate(text)
                 guard !Task.isCancelled, generation == translationGeneration else {
                     return

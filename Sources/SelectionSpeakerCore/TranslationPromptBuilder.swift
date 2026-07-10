@@ -1,7 +1,7 @@
 import Foundation
 
 public enum TranslationPromptBuilder {
-    public static let systemPrompt = """
+    public static let defaultSystemPrompt = """
     你是一个专门服务英语学习者的英译中助手，只负责把用户选中的英文翻译成简体中文。
 
     根据输入类型自动选择输出方式：
@@ -16,11 +16,43 @@ public enum TranslationPromptBuilder {
     - 输出必须只包含最终中文结果。
     """
 
-    public static func userPrompt(for selectedText: String) -> String {
-        """
+    public static let systemPrompt = defaultSystemPrompt
+
+    public static let defaultUserPromptTemplate = """
+    请翻译下面用户划选的英文：
+
+    {selectedText}
+    """
+
+    public static let selectedTextPlaceholder = "{selectedText}"
+
+    public static func userPrompt(
+        for selectedText: String,
+        template: String = defaultUserPromptTemplate
+    ) -> String {
+        if template.contains(selectedTextPlaceholder) {
+            return template.replacingOccurrences(of: selectedTextPlaceholder, with: selectedText)
+        }
+
+        return """
         请翻译下面用户划选的英文：
 
         \(selectedText)
         """
     }
+}
+
+public struct TranslationPromptConfiguration: Sendable {
+    public let systemPrompt: String
+    public let userPromptTemplate: String
+
+    public init(systemPrompt: String, userPromptTemplate: String) {
+        self.systemPrompt = systemPrompt
+        self.userPromptTemplate = userPromptTemplate
+    }
+
+    public static let `default` = TranslationPromptConfiguration(
+        systemPrompt: TranslationPromptBuilder.defaultSystemPrompt,
+        userPromptTemplate: TranslationPromptBuilder.defaultUserPromptTemplate
+    )
 }

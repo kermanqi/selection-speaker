@@ -15,6 +15,10 @@ public enum SelectionTextNormalizer {
             return nil
         }
 
+        guard !containsCJKIdeograph(in: trimmed) else {
+            return nil
+        }
+
         let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
         guard englishLetterPattern.firstMatch(in: trimmed, range: range) != nil else {
             return nil
@@ -32,5 +36,19 @@ public enum SelectionTextNormalizer {
 
         let endIndex = collapsed.index(collapsed.startIndex, offsetBy: maxCharacters)
         return String(collapsed[..<endIndex])
+    }
+
+    private static func containsCJKIdeograph(in text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3400...0x4DBF,
+                 0x4E00...0x9FFF,
+                 0xF900...0xFAFF,
+                 0x20000...0x2FA1F:
+                return true
+            default:
+                return false
+            }
+        }
     }
 }

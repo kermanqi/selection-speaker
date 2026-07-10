@@ -1,16 +1,19 @@
 import AppKit
+import SelectionSpeakerCore
 
 @MainActor
 final class PreferencesWindowController: NSWindowController {
     private let onShortcutsChanged: @MainActor () -> Void
     private let readingButton = NSButton()
     private let translationButton = NSButton()
+    private let systemPromptTextView = NSTextView()
+    private let userPromptTemplateTextView = NSTextView()
 
     init(onShortcutsChanged: @escaping @MainActor () -> Void) {
         self.onShortcutsChanged = onShortcutsChanged
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 330),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -21,7 +24,7 @@ final class PreferencesWindowController: NSWindowController {
 
         super.init(window: window)
         window.contentView = makeContentView()
-        refreshShortcutButtons()
+        refreshControls()
     }
 
     required init?(coder: NSCoder) {
@@ -34,33 +37,34 @@ final class PreferencesWindowController: NSWindowController {
         }
 
         refreshShortcutButtons()
+        refreshPromptTextViews()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     private func makeContentView() -> NSView {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 330))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 720))
 
         let title = NSTextField(labelWithString: "快捷键")
         title.font = .boldSystemFont(ofSize: 18)
-        title.frame = NSRect(x: 34, y: 282, width: 240, height: 24)
+        title.frame = NSRect(x: 34, y: 672, width: 240, height: 24)
         content.addSubview(title)
 
         let note = NSTextField(labelWithString: "点击“录制快捷键”后，直接按下你想用的组合。建议至少两个修饰键，避免和浏览器、输入法或系统快捷键冲突。")
         note.font = .systemFont(ofSize: 13)
         note.textColor = .secondaryLabelColor
-        note.frame = NSRect(x: 34, y: 236, width: 452, height: 40)
+        note.frame = NSRect(x: 34, y: 626, width: 572, height: 40)
         note.lineBreakMode = .byWordWrapping
         note.maximumNumberOfLines = 2
         content.addSubview(note)
 
-        let separator = NSBox(frame: NSRect(x: 34, y: 218, width: 452, height: 1))
-        separator.boxType = .separator
-        content.addSubview(separator)
+        let shortcutSeparator = NSBox(frame: NSRect(x: 34, y: 608, width: 572, height: 1))
+        shortcutSeparator.boxType = .separator
+        content.addSubview(shortcutSeparator)
 
         addShortcutRow(
             to: content,
-            y: 166,
+            y: 556,
             title: "划词后自动朗读",
             button: readingButton,
             recordAction: #selector(recordReadingShortcut),
@@ -69,7 +73,7 @@ final class PreferencesWindowController: NSWindowController {
 
         addShortcutRow(
             to: content,
-            y: 118,
+            y: 508,
             title: "显示中文翻译",
             button: translationButton,
             recordAction: #selector(recordTranslationShortcut),
@@ -79,8 +83,45 @@ final class PreferencesWindowController: NSWindowController {
         let footer = NSTextField(labelWithString: "如果保存后提示快捷键不可用，通常说明这个组合已被其他 App 或系统占用。")
         footer.font = .systemFont(ofSize: 12)
         footer.textColor = .secondaryLabelColor
-        footer.frame = NSRect(x: 34, y: 50, width: 452, height: 20)
+        footer.frame = NSRect(x: 34, y: 470, width: 572, height: 20)
         content.addSubview(footer)
+
+        let promptTitle = NSTextField(labelWithString: "翻译提示词")
+        promptTitle.font = .boldSystemFont(ofSize: 18)
+        promptTitle.frame = NSRect(x: 34, y: 432, width: 240, height: 24)
+        content.addSubview(promptTitle)
+
+        let promptNote = NSTextField(labelWithString: "你可以把这里的提示词复制给其他 AI 修改。用户提示词模板必须保留 {selectedText}，App 会把划选文本填进去。")
+        promptNote.font = .systemFont(ofSize: 13)
+        promptNote.textColor = .secondaryLabelColor
+        promptNote.frame = NSRect(x: 34, y: 388, width: 572, height: 36)
+        promptNote.lineBreakMode = .byWordWrapping
+        promptNote.maximumNumberOfLines = 2
+        content.addSubview(promptNote)
+
+        addPromptEditor(
+            to: content,
+            title: "系统提示词",
+            textView: systemPromptTextView,
+            frame: NSRect(x: 34, y: 142, width: 572, height: 230)
+        )
+
+        addPromptEditor(
+            to: content,
+            title: "用户提示词模板",
+            textView: userPromptTemplateTextView,
+            frame: NSRect(x: 34, y: 50, width: 572, height: 70)
+        )
+
+        let restoreButton = NSButton(title: "恢复默认提示词", target: self, action: #selector(restoreDefaultPrompts))
+        restoreButton.bezelStyle = .rounded
+        restoreButton.frame = NSRect(x: 34, y: 12, width: 128, height: 28)
+        content.addSubview(restoreButton)
+
+        let saveButton = NSButton(title: "保存提示词", target: self, action: #selector(savePrompts))
+        saveButton.bezelStyle = .rounded
+        saveButton.frame = NSRect(x: 478, y: 12, width: 128, height: 28)
+        content.addSubview(saveButton)
 
         return content
     }
@@ -110,9 +151,62 @@ final class PreferencesWindowController: NSWindowController {
         content.addSubview(clearButton)
     }
 
+    private func addPromptEditor(
+        to content: NSView,
+        title: String,
+        textView: NSTextView,
+        frame: NSRect
+    ) {
+        let label = NSTextField(labelWithString: title)
+        label.frame = NSRect(x: frame.minX, y: frame.maxY + 6, width: frame.width, height: 18)
+        content.addSubview(label)
+
+        let scrollView = NSScrollView(frame: frame)
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = false
+        scrollView.borderType = .bezelBorder
+
+        textView.frame = scrollView.contentView.bounds
+        textView.autoresizingMask = [.width]
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textColor = .labelColor
+        textView.backgroundColor = .textBackgroundColor
+        textView.drawsBackground = true
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.minSize = NSSize(width: 0, height: frame.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainer?.containerSize = NSSize(width: frame.width, height: .greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+
+        scrollView.documentView = textView
+        content.addSubview(scrollView)
+    }
+
+    private func refreshControls() {
+        refreshShortcutButtons()
+        refreshPromptTextViews()
+    }
+
     private func refreshShortcutButtons() {
         readingButton.title = UserSettings.readingShortcut?.displayString ?? "录制快捷键"
         translationButton.title = UserSettings.translationShortcut?.displayString ?? "录制快捷键"
+    }
+
+    private func refreshPromptTextViews() {
+        systemPromptTextView.string = UserSettings.systemPrompt
+        userPromptTemplateTextView.string = UserSettings.userPromptTemplate
+        scrollToBeginning(systemPromptTextView)
+        scrollToBeginning(userPromptTemplateTextView)
+    }
+
+    private func scrollToBeginning(_ textView: NSTextView) {
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
 
     @objc private func recordReadingShortcut() {
@@ -141,6 +235,24 @@ final class PreferencesWindowController: NSWindowController {
     @objc private func clearTranslationShortcut() {
         UserSettings.translationShortcut = nil
         shortcutSettingsChanged()
+    }
+
+    @objc private func savePrompts() {
+        let template = userPromptTemplateTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard template.contains(TranslationPromptBuilder.selectedTextPlaceholder) else {
+            showMessage("用户提示词模板缺少占位符", informativeText: "请保留 {selectedText}，App 会把划选文本填到这个位置。")
+            return
+        }
+
+        UserSettings.systemPrompt = systemPromptTextView.string
+        UserSettings.userPromptTemplate = template
+        showMessage("提示词已保存", informativeText: "下一次翻译会使用新的提示词。")
+    }
+
+    @objc private func restoreDefaultPrompts() {
+        UserSettings.restoreDefaultPrompts()
+        refreshPromptTextViews()
+        showMessage("已恢复默认提示词", informativeText: "文本框里现在就是内置默认提示词，可以直接复制。")
     }
 
     private func recordShortcut(

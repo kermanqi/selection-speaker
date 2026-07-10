@@ -52,6 +52,7 @@ final class TranslationPopover {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
+        panel.hasShadow = false
         panel.level = .floating
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -59,13 +60,23 @@ final class TranslationPopover {
     }
 
     private func makeContentView(text: String, size: NSSize, font: NSFont) -> NSView {
-        let container = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
-        container.material = .popover
-        container.blendingMode = .behindWindow
-        container.state = .active
+        let root = NSView(frame: NSRect(origin: .zero, size: size))
+        root.wantsLayer = true
+        root.layer?.backgroundColor = NSColor.clear.cgColor
+
+        let container = NSView(frame: root.bounds)
+        container.autoresizingMask = [.width, .height]
         container.wantsLayer = true
         container.layer?.cornerRadius = 8
         container.layer?.masksToBounds = true
+        container.layer?.backgroundColor = NSColor.clear.cgColor
+
+        let effectView = NSVisualEffectView(frame: container.bounds)
+        effectView.autoresizingMask = [.width, .height]
+        effectView.material = .popover
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        container.addSubview(effectView)
 
         let label = NSTextField(labelWithString: text)
         label.frame = NSRect(x: 14, y: 12, width: size.width - 28, height: size.height - 24)
@@ -77,7 +88,8 @@ final class TranslationPopover {
         label.cell?.isScrollable = false
 
         container.addSubview(label)
-        return container
+        root.addSubview(container)
+        return root
     }
 
     private static func windowSize(for text: String, font: NSFont) -> NSSize {

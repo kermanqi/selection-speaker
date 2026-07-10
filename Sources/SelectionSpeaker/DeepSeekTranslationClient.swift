@@ -4,6 +4,7 @@ import SelectionSpeakerCore
 struct DeepSeekTranslationClient {
     let apiKey: String
     let modelName: String
+    let promptConfiguration: TranslationPromptConfiguration
 
     private let endpoint = URL(string: "https://api.deepseek.com/chat/completions")!
 
@@ -17,8 +18,14 @@ struct DeepSeekTranslationClient {
         let body = ChatCompletionRequest(
             model: modelName,
             messages: [
-                .init(role: "system", content: TranslationPromptBuilder.systemPrompt),
-                .init(role: "user", content: TranslationPromptBuilder.userPrompt(for: text))
+                .init(role: "system", content: promptConfiguration.systemPrompt),
+                .init(
+                    role: "user",
+                    content: TranslationPromptBuilder.userPrompt(
+                        for: text,
+                        template: promptConfiguration.userPromptTemplate
+                    )
+                )
             ],
             temperature: 1.3,
             maxTokens: 420,
