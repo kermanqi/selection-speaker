@@ -10,9 +10,6 @@ private enum TranslationResultSpeechPolicy {
 
 @MainActor
 final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
-    private static let selectionSettleDelay = Duration.milliseconds(80)
-    private static let clipboardCopyDelay = Duration.milliseconds(120)
-
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let speaker = AVSpeechSynthesizer()
     private let keychainStore = KeychainCredentialStore()
@@ -283,7 +280,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             return
         }
 
-        var rawText = await settledSelectedTextFromFocusedElement()
+        var rawText = selectedTextFromFocusedElement()
         if rawText == nil {
             rawText = await copiedSelectedText()
         }
@@ -355,20 +352,13 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         return selectedTextObject as? String
     }
 
-    private func settledSelectedTextFromFocusedElement() async -> String? {
-        let initial = selectedTextFromFocusedElement()
-        try? await Task.sleep(for: Self.selectionSettleDelay)
-        let settled = selectedTextFromFocusedElement()
-        return SelectionTextStabilityResolver.preferredText(initial: initial, settled: settled)
-    }
-
     private func copiedSelectedText() async -> String? {
         let pasteboard = NSPasteboard.general
         let snapshot = PasteboardSnapshot.capture(from: pasteboard)
         let previousChangeCount = pasteboard.changeCount
 
         postCommandC()
-        try? await Task.sleep(for: Self.clipboardCopyDelay)
+        try? await Task.sleep(for: .milliseconds(90))
 
         defer {
             snapshot.restore(to: pasteboard)
@@ -378,10 +368,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        let initial = pasteboard.string(forType: .string)
-        try? await Task.sleep(for: Self.selectionSettleDelay)
-        let settled = pasteboard.string(forType: .string)
-        return SelectionTextStabilityResolver.preferredText(initial: initial, settled: settled)
+        return pasteboard.string(forType: .string)
     }
 
     private func postCommandC() {
