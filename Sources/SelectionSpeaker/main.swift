@@ -3,6 +3,11 @@ import ApplicationServices
 import AVFoundation
 import SelectionSpeakerCore
 
+private enum TranslationResultSpeechPolicy {
+    case never
+    case whenTranslationArrives
+}
+
 @MainActor
 final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -19,6 +24,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     private var localPopoverDismissMonitor: Any?
     private var isEnabled = true
     private var isTranslationEnabled = UserSettings.isTranslationEnabled
+    private var translationDirection = UserSettings.translationDirection
     private var lastSpokenText = ""
     private var lastSpokenAt = Date.distantPast
     private var lastMouseDownLocation: NSPoint?
@@ -74,7 +80,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         menu.addItem(enabledItem)
 
         let translationItem = NSMenuItem(
-            title: "显示中文翻译",
+            title: "开启/关闭翻译",
             action: #selector(toggleTranslationEnabled),
             keyEquivalent: UserSettings.translationShortcut?.keyEquivalent ?? ""
         )
@@ -82,6 +88,15 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         translationItem.keyEquivalentModifierMask = UserSettings.translationShortcut?.menuModifierMask ?? []
         translationItem.state = isTranslationEnabled ? .on : .off
         menu.addItem(translationItem)
+
+        let directionItem = NSMenuItem(
+            title: "切换为\(translationDirection == .englishToChinese ? "中译英" : "英译中")模式",
+            action: #selector(toggleTranslationDirection),
+            keyEquivalent: UserSettings.translationDirectionShortcut?.keyEquivalent ?? ""
+        )
+        directionItem.target = self
+        directionItem.keyEquivalentModifierMask = UserSettings.translationDirectionShortcut?.menuModifierMask ?? []
+        menu.addItem(directionItem)
 
         let preferencesItem = NSMenuItem(
             title: "偏好设置...",
@@ -149,9 +164,11 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
 
         button.image = StatusIconRenderer.image(
             readingEnabled: isEnabled,
-            translationEnabled: isTranslationEnabled
+            translationEnabled: isTranslationEnabled,
+            translationDirection: translationDirection
         )
-        button.toolTip = "划词朗读器：朗读\(isEnabled ? "开" : "关")，翻译\(isTranslationEnabled ? "开" : "关")"
+        let directionName = translationDirection == .englishToChinese ? "英译中" : "中译英"
+        button.toolTip = "划词朗读器：朗读\(isEnabled ? "开" : "关")，翻译\(isTranslationEnabled ? "开" : "关")（\(directionName)）"
     }
 
     private func requestAccessibilityPermissionIfNeeded() {
@@ -190,6 +207,8 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             self?.toggleEnabled()
         } onTranslationToggle: { [weak self] in
             self?.toggleTranslationEnabled()
+        } onTranslationDirectionToggle: { [weak self] in
+            self?.toggleTranslationDirection()
         }
 
         do {
@@ -209,6 +228,10 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
 
         if let shortcut = UserSettings.translationShortcut {
             registrations.append(.init(action: .toggleTranslation, shortcut: shortcut))
+        }
+
+        if let shortcut = UserSettings.translationDirectionShortcut {
+            registrations.append(.init(action: .toggleTranslationDirection, shortcut: shortcut))
         }
 
         return registrations
@@ -262,21 +285,42 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             rawText = await copiedSelectedText()
         }
 
-        guard let rawText,
-              let text = SelectionTextNormalizer.normalizedText(from: rawText) else {
+        guard let rawText else {
             return
         }
 
-        if isEnabled {
-            let now = Date()
-            if text != lastSpokenText || now.timeIntervalSince(lastSpokenAt) > 1.2 {
-                lastSpokenText = text
-                lastSpokenAt = now
-                speak(text)
+        guard isTranslationEnabled else {
+            guard let text = SelectionTextNormalizer.normalizedText(from: rawText) else {
+                return
             }
+            speakIfNeeded(text)
+            return
         }
 
-        translateIfNeeded(text, near: NSEvent.mouseLocation)
+        guard let plan = SelectionTranslationPlanner.plan(
+            from: rawText,
+            direction: translationDirection
+        ) else {
+            return
+        }
+
+        switch plan {
+        case .speakOriginalAndTranslateToChinese(let text):
+            speakIfNeeded(text)
+            translateIfNeeded(
+                text,
+                direction: .englishToChinese,
+                speechPolicy: .never,
+                near: NSEvent.mouseLocation
+            )
+        case .translateToEnglishAndSpeakResult(let text):
+            translateIfNeeded(
+                text,
+                direction: .chineseToEnglish,
+                speechPolicy: .whenTranslationArrives,
+                near: NSEvent.mouseLocation
+            )
+        }
     }
 
     private func selectedTextFromFocusedElement() -> String? {
@@ -340,6 +384,21 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         keyUp.post(tap: .cghidEventTap)
     }
 
+    private func speakIfNeeded(_ text: String) {
+        guard isEnabled else {
+            return
+        }
+
+        let now = Date()
+        guard text != lastSpokenText || now.timeIntervalSince(lastSpokenAt) > 1.2 else {
+            return
+        }
+
+        lastSpokenText = text
+        lastSpokenAt = now
+        speak(text)
+    }
+
     private func speak(_ text: String) {
         if speaker.isSpeaking {
             speaker.stopSpeaking(at: .immediate)
@@ -351,13 +410,21 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         speaker.speak(utterance)
     }
 
-    private func translateIfNeeded(_ text: String, near location: NSPoint) {
+    private func translateIfNeeded(
+        _ text: String,
+        direction: TranslationDirection,
+        speechPolicy: TranslationResultSpeechPolicy,
+        near location: NSPoint
+    ) {
         guard isTranslationEnabled else {
             return
         }
 
-        if let cached = translationCache[text] {
+        if let cached = translationCache[text, direction] {
             translationPopover.show(text: cached, at: location)
+            if speechPolicy == .whenTranslationArrives {
+                speakIfNeeded(cached)
+            }
             return
         }
 
@@ -383,6 +450,15 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         translationGeneration += 1
         let generation = translationGeneration
         let modelName = UserSettings.modelName
+        let promptConfiguration: TranslationPromptConfiguration
+        if direction == .chineseToEnglish {
+            promptConfiguration = TranslationPromptConfiguration(
+                systemPrompt: TranslationPromptBuilder.chineseToEnglishSystemPrompt,
+                userPromptTemplate: TranslationPromptBuilder.chineseToEnglishUserPromptTemplate
+            )
+        } else {
+            promptConfiguration = UserSettings.promptConfiguration
+        }
 
         translationPopover.showLoading(at: location)
         translationTask = Task { @MainActor in
@@ -390,14 +466,17 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
                 let client = DeepSeekTranslationClient(
                     apiKey: apiKey,
                     modelName: modelName,
-                    promptConfiguration: UserSettings.promptConfiguration
+                    promptConfiguration: promptConfiguration
                 )
                 let translation = try await client.translate(text)
                 guard !Task.isCancelled, generation == translationGeneration else {
                     return
                 }
-                rememberTranslation(translation, for: text)
+                rememberTranslation(translation, for: text, direction: direction)
                 translationPopover.show(text: translation, at: location)
+                if speechPolicy == .whenTranslationArrives {
+                    self.speakIfNeeded(translation)
+                }
             } catch {
                 guard !Task.isCancelled, generation == translationGeneration else {
                     return
@@ -407,8 +486,12 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func rememberTranslation(_ translation: String, for text: String) {
-        translationCache.store(translation, for: text)
+    private func rememberTranslation(
+        _ translation: String,
+        for text: String,
+        direction: TranslationDirection
+    ) {
+        translationCache.store(translation, for: text, direction: direction)
     }
 
     @objc private func toggleEnabled() {
@@ -424,6 +507,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             isTranslationEnabled = false
             UserSettings.isTranslationEnabled = false
             translationTask?.cancel()
+            translationGeneration += 1
             translationPopover.hide()
             refreshMenu()
             return
@@ -435,6 +519,18 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
 
         isTranslationEnabled = true
         UserSettings.isTranslationEnabled = true
+        refreshMenu()
+    }
+
+    @objc private func toggleTranslationDirection() {
+        translationDirection = translationDirection == .englishToChinese
+            ? .chineseToEnglish
+            : .englishToChinese
+        UserSettings.translationDirection = translationDirection
+        translationTask?.cancel()
+        translationGeneration += 1
+        speaker.stopSpeaking(at: .immediate)
+        translationPopover.hide()
         refreshMenu()
     }
 

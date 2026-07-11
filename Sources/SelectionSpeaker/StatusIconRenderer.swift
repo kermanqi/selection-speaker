@@ -1,8 +1,13 @@
 import AppKit
+import SelectionSpeakerCore
 
 @MainActor
 enum StatusIconRenderer {
-    static func image(readingEnabled: Bool, translationEnabled: Bool) -> NSImage {
+    static func image(
+        readingEnabled: Bool,
+        translationEnabled: Bool,
+        translationDirection: TranslationDirection
+    ) -> NSImage {
         let size = NSSize(width: 28, height: 22)
         let image = NSImage(size: size, flipped: false) { _ in
             NSGraphicsContext.current?.imageInterpolation = .high
@@ -14,7 +19,9 @@ enum StatusIconRenderer {
             )
             drawStatusDot(
                 center: NSPoint(x: 21, y: 4.5),
-                color: translationEnabled ? .systemGreen : offColor
+                color: translationEnabled
+                    ? (translationDirection == .chineseToEnglish ? .systemRed : .systemGreen)
+                    : offColor
             )
             return true
         }

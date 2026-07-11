@@ -6,6 +6,7 @@ final class GlobalHotKeyMonitor {
     enum Action: UInt32 {
         case toggleReading = 1
         case toggleTranslation = 2
+        case toggleTranslationDirection = 3
     }
 
     struct Registration {
@@ -15,6 +16,7 @@ final class GlobalHotKeyMonitor {
 
     private let onReadingToggle: @MainActor () -> Void
     private let onTranslationToggle: @MainActor () -> Void
+    private let onTranslationDirectionToggle: @MainActor () -> Void
     private var registrations: [Registration]
     private var eventHandler: EventHandlerRef?
     private var hotKeys: [EventHotKeyRef] = []
@@ -22,11 +24,13 @@ final class GlobalHotKeyMonitor {
     init(
         registrations: [Registration],
         onReadingToggle: @escaping @MainActor () -> Void,
-        onTranslationToggle: @escaping @MainActor () -> Void
+        onTranslationToggle: @escaping @MainActor () -> Void,
+        onTranslationDirectionToggle: @escaping @MainActor () -> Void
     ) {
         self.registrations = registrations
         self.onReadingToggle = onReadingToggle
         self.onTranslationToggle = onTranslationToggle
+        self.onTranslationDirectionToggle = onTranslationDirectionToggle
     }
 
     func start() throws {
@@ -123,6 +127,8 @@ final class GlobalHotKeyMonitor {
             onReadingToggle()
         case .toggleTranslation:
             onTranslationToggle()
+        case .toggleTranslationDirection:
+            onTranslationDirectionToggle()
         case nil:
             break
         }

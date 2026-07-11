@@ -24,6 +24,21 @@ public enum TranslationPromptBuilder {
     {selectedText}
     """
 
+    public static let chineseToEnglishSystemPrompt = """
+    你是一个专门服务中文使用者的中译英助手，只负责把用户输入的中文或中英文混合文本翻译成自然、准确、符合语境的英文。
+
+    - 只输出最终英文译文，不要解释任务，不要补充例句，不要输出 Markdown，不要说“翻译如下”。
+    - 保留人名、品牌名、代码、URL、数字、单位和专有名词；除非语境明确要求，否则不要擅自改写。
+    - 中文和英文混合输入要完整翻译，英文部分根据上下文保留或自然改写。
+    - 输出应适合直接朗读，避免生硬直译。
+    """
+
+    public static let chineseToEnglishUserPromptTemplate = """
+    请把下面的中文或中英文混合文本翻译成自然英文：
+
+    {selectedText}
+    """
+
     public static let selectedTextPlaceholder = "{selectedText}"
 
     public static func userPrompt(

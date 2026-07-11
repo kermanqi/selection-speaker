@@ -4,8 +4,10 @@ import SelectionSpeakerCore
 enum UserSettings {
     private static let translationEnabledKey = "translation.enabled"
     private static let modelNameKey = "translation.deepseek.modelName"
+    private static let translationDirectionKey = "translation.direction"
     private static let readingShortcutKey = "hotKey.reading"
     private static let translationShortcutKey = "hotKey.translation"
+    private static let translationDirectionShortcutKey = "hotKey.translationDirection"
     private static let systemPromptKey = "translation.prompt.system"
     private static let userPromptTemplateKey = "translation.prompt.userTemplate"
 
@@ -32,6 +34,19 @@ enum UserSettings {
         }
     }
 
+    static var translationDirection: TranslationDirection {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: translationDirectionKey),
+                  let direction = TranslationDirection(rawValue: rawValue) else {
+                return .englishToChinese
+            }
+            return direction
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: translationDirectionKey)
+        }
+    }
+
     static var readingShortcut: HotKeyShortcut? {
         get {
             shortcut(forKey: readingShortcutKey)
@@ -47,6 +62,15 @@ enum UserSettings {
         }
         set {
             setShortcut(newValue, forKey: translationShortcutKey)
+        }
+    }
+
+    static var translationDirectionShortcut: HotKeyShortcut? {
+        get {
+            shortcut(forKey: translationDirectionShortcutKey)
+        }
+        set {
+            setShortcut(newValue, forKey: translationDirectionShortcutKey)
         }
     }
 

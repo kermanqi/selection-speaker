@@ -6,6 +6,14 @@ public enum SelectionTextNormalizer {
     private static let whitespacePattern = try! NSRegularExpression(pattern: #"\s+"#)
 
     public static func normalizedText(from selectedText: String, maxCharacters: Int = 500) -> String? {
+        normalizedText(from: selectedText, allowsChinese: false, maxCharacters: maxCharacters)
+    }
+
+    public static func normalizedText(
+        from selectedText: String,
+        allowsChinese: Bool,
+        maxCharacters: Int = 500
+    ) -> String? {
         let withoutZeroWidth = selectedText
             .components(separatedBy: zeroWidthCharacters)
             .joined()
@@ -15,12 +23,14 @@ public enum SelectionTextNormalizer {
             return nil
         }
 
-        guard !containsCJKIdeograph(in: trimmed) else {
+        let containsChinese = containsCJKIdeograph(in: trimmed)
+        guard allowsChinese || !containsChinese else {
             return nil
         }
 
         let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
-        guard englishLetterPattern.firstMatch(in: trimmed, range: range) != nil else {
+        let containsEnglish = englishLetterPattern.firstMatch(in: trimmed, range: range) != nil
+        guard containsEnglish || (allowsChinese && containsChinese) else {
             return nil
         }
 
@@ -38,7 +48,7 @@ public enum SelectionTextNormalizer {
         return String(collapsed[..<endIndex])
     }
 
-    private static func containsCJKIdeograph(in text: String) -> Bool {
+    static func containsCJKIdeograph(in text: String) -> Bool {
         text.unicodeScalars.contains { scalar in
             switch scalar.value {
             case 0x3400...0x4DBF,
