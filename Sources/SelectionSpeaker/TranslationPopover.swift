@@ -1,4 +1,5 @@
 import AppKit
+import SelectionSpeakerCore
 
 @MainActor
 final class TranslationPopover {
@@ -27,11 +28,11 @@ final class TranslationPopover {
         dismissTask?.cancel()
 
         let font = NSFont.systemFont(ofSize: 14)
-        let size = Self.windowSize(for: text, font: font)
+        let layout = PopoverTextLayout.layout(for: text, font: font)
         let panel = window ?? makeWindow()
-        panel.setContentSize(size)
-        panel.contentView = makeContentView(text: text, size: size, font: font)
-        panel.setFrameOrigin(Self.origin(near: location, size: size))
+        panel.setContentSize(layout.windowSize)
+        panel.contentView = makeContentView(text: text, layout: layout, font: font)
+        panel.setFrameOrigin(Self.origin(near: location, size: layout.windowSize))
         panel.orderFrontRegardless()
         window = panel
 
@@ -59,8 +60,8 @@ final class TranslationPopover {
         return panel
     }
 
-    private func makeContentView(text: String, size: NSSize, font: NSFont) -> NSView {
-        let root = NSView(frame: NSRect(origin: .zero, size: size))
+    private func makeContentView(text: String, layout: PopoverTextLayout, font: NSFont) -> NSView {
+        let root = NSView(frame: NSRect(origin: .zero, size: layout.windowSize))
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.clear.cgColor
 
@@ -79,31 +80,18 @@ final class TranslationPopover {
         container.addSubview(effectView)
 
         let label = NSTextField(labelWithString: text)
-        label.frame = NSRect(x: 14, y: 12, width: size.width - 28, height: size.height - 24)
+        label.frame = layout.textFrame
         label.font = font
         label.textColor = .labelColor
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 12
         label.cell?.wraps = true
+        label.cell?.usesSingleLineMode = false
         label.cell?.isScrollable = false
 
         container.addSubview(label)
         root.addSubview(container)
         return root
-    }
-
-    private static func windowSize(for text: String, font: NSFont) -> NSSize {
-        let maxTextWidth: CGFloat = 330
-        let minTextWidth: CGFloat = 120
-        let maxTextHeight: CGFloat = 280
-        let attributed = NSAttributedString(string: text, attributes: [.font: font])
-        let bounds = attributed.boundingRect(
-            with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading]
-        )
-        let width = min(360, max(minTextWidth, ceil(bounds.width) + 28))
-        let height = min(maxTextHeight + 24, max(44, ceil(bounds.height) + 24))
-        return NSSize(width: width, height: height)
     }
 
     private static func origin(near location: NSPoint, size: NSSize) -> NSPoint {
