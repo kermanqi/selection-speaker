@@ -3,10 +3,18 @@ import SelectionSpeakerCore
 
 @MainActor
 final class PreferencesWindowController: NSWindowController {
+    private enum ShortcutKind {
+        case reading
+        case translation
+        case translationDirection
+        case screenText
+    }
+
     private let onShortcutsChanged: @MainActor () -> Void
     private let readingButton = NSButton()
     private let translationButton = NSButton()
     private let translationDirectionButton = NSButton()
+    private let screenTextButton = NSButton()
     private let systemPromptTextView = NSTextView()
     private let userPromptTemplateTextView = NSTextView()
 
@@ -14,7 +22,7 @@ final class PreferencesWindowController: NSWindowController {
         self.onShortcutsChanged = onShortcutsChanged
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 768),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 816),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -44,28 +52,28 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     private func makeContentView() -> NSView {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 768))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 816))
 
         let title = NSTextField(labelWithString: "快捷键")
         title.font = .boldSystemFont(ofSize: 18)
-        title.frame = NSRect(x: 34, y: 720, width: 240, height: 24)
+        title.frame = NSRect(x: 34, y: 768, width: 240, height: 24)
         content.addSubview(title)
 
         let note = NSTextField(labelWithString: "点击“录制快捷键”后，直接按下你想用的组合。建议至少两个修饰键，避免和浏览器、输入法或系统快捷键冲突。")
         note.font = .systemFont(ofSize: 13)
         note.textColor = .secondaryLabelColor
-        note.frame = NSRect(x: 34, y: 674, width: 572, height: 40)
+        note.frame = NSRect(x: 34, y: 722, width: 572, height: 40)
         note.lineBreakMode = .byWordWrapping
         note.maximumNumberOfLines = 2
         content.addSubview(note)
 
-        let shortcutSeparator = NSBox(frame: NSRect(x: 34, y: 656, width: 572, height: 1))
+        let shortcutSeparator = NSBox(frame: NSRect(x: 34, y: 704, width: 572, height: 1))
         shortcutSeparator.boxType = .separator
         content.addSubview(shortcutSeparator)
 
         addShortcutRow(
             to: content,
-            y: 604,
+            y: 652,
             title: "划词后自动朗读",
             button: readingButton,
             recordAction: #selector(recordReadingShortcut),
@@ -74,7 +82,7 @@ final class PreferencesWindowController: NSWindowController {
 
         addShortcutRow(
             to: content,
-            y: 556,
+            y: 604,
             title: "开启/关闭翻译",
             button: translationButton,
             recordAction: #selector(recordTranslationShortcut),
@@ -83,11 +91,20 @@ final class PreferencesWindowController: NSWindowController {
 
         addShortcutRow(
             to: content,
-            y: 508,
+            y: 556,
             title: "切换翻译方向",
             button: translationDirectionButton,
             recordAction: #selector(recordTranslationDirectionShortcut),
             clearAction: #selector(clearTranslationDirectionShortcut)
+        )
+
+        addShortcutRow(
+            to: content,
+            y: 508,
+            title: "屏幕取词（OCR）",
+            button: screenTextButton,
+            recordAction: #selector(recordScreenTextShortcut),
+            clearAction: #selector(clearScreenTextShortcut)
         )
 
         let footer = NSTextField(labelWithString: "如果保存后提示快捷键不可用，通常说明这个组合已被其他 App 或系统占用。")
@@ -206,6 +223,7 @@ final class PreferencesWindowController: NSWindowController {
         readingButton.title = UserSettings.readingShortcut?.displayString ?? "录制快捷键"
         translationButton.title = UserSettings.translationShortcut?.displayString ?? "录制快捷键"
         translationDirectionButton.title = UserSettings.translationDirectionShortcut?.displayString ?? "录制快捷键"
+        screenTextButton.title = UserSettings.screenTextShortcut?.displayString ?? "录制快捷键"
     }
 
     private func refreshPromptTextViews() {
@@ -222,31 +240,29 @@ final class PreferencesWindowController: NSWindowController {
 
     @objc private func recordReadingShortcut() {
         recordShortcut(title: "设置朗读快捷键") { shortcut in
-            guard shortcut != UserSettings.translationShortcut,
-                  shortcut != UserSettings.translationDirectionShortcut else {
-                throw HotKeyShortcutError.duplicatedShortcut
-            }
+            try validateUniqueShortcut(shortcut, excluding: .reading)
             UserSettings.readingShortcut = shortcut
         }
     }
 
     @objc private func recordTranslationShortcut() {
         recordShortcut(title: "设置翻译快捷键") { shortcut in
-            guard shortcut != UserSettings.readingShortcut,
-                  shortcut != UserSettings.translationDirectionShortcut else {
-                throw HotKeyShortcutError.duplicatedShortcut
-            }
+            try validateUniqueShortcut(shortcut, excluding: .translation)
             UserSettings.translationShortcut = shortcut
         }
     }
 
     @objc private func recordTranslationDirectionShortcut() {
         recordShortcut(title: "设置翻译方向快捷键") { shortcut in
-            guard shortcut != UserSettings.readingShortcut,
-                  shortcut != UserSettings.translationShortcut else {
-                throw HotKeyShortcutError.duplicatedShortcut
-            }
+            try validateUniqueShortcut(shortcut, excluding: .translationDirection)
             UserSettings.translationDirectionShortcut = shortcut
+        }
+    }
+
+    @objc private func recordScreenTextShortcut() {
+        recordShortcut(title: "设置屏幕取词快捷键") { shortcut in
+            try validateUniqueShortcut(shortcut, excluding: .screenText)
+            UserSettings.screenTextShortcut = shortcut
         }
     }
 
@@ -262,6 +278,11 @@ final class PreferencesWindowController: NSWindowController {
 
     @objc private func clearTranslationDirectionShortcut() {
         UserSettings.translationDirectionShortcut = nil
+        shortcutSettingsChanged()
+    }
+
+    @objc private func clearScreenTextShortcut() {
+        UserSettings.screenTextShortcut = nil
         shortcutSettingsChanged()
     }
 
@@ -296,6 +317,22 @@ final class PreferencesWindowController: NSWindowController {
             shortcutSettingsChanged()
         } catch {
             showMessage("快捷键不可用", informativeText: error.localizedDescription)
+        }
+    }
+
+    private func validateUniqueShortcut(
+        _ shortcut: HotKeyShortcut,
+        excluding kind: ShortcutKind
+    ) throws {
+        let existingShortcuts: [HotKeyShortcut?] = [
+            kind == .reading ? nil : UserSettings.readingShortcut,
+            kind == .translation ? nil : UserSettings.translationShortcut,
+            kind == .translationDirection ? nil : UserSettings.translationDirectionShortcut,
+            kind == .screenText ? nil : UserSettings.screenTextShortcut
+        ]
+
+        guard !existingShortcuts.compactMap({ $0 }).contains(shortcut) else {
+            throw HotKeyShortcutError.duplicatedShortcut
         }
     }
 

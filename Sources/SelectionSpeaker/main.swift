@@ -14,6 +14,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     private let speaker = AVSpeechSynthesizer()
     private let keychainStore = KeychainCredentialStore()
     private let translationPopover = TranslationPopover()
+    private let screenTextCapture = ScreenTextCaptureOverlay()
     private lazy var preferencesWindowController = PreferencesWindowController { [weak self] in
         self?.restartGlobalShortcuts()
         self?.refreshMenu()
@@ -28,7 +29,9 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     private var lastSpokenText = ""
     private var lastSpokenAt = Date.distantPast
     private var lastMouseDownLocation: NSPoint?
+    private var isScreenTextCaptureGesture = false
     private var translationTask: Task<Void, Never>?
+    private var screenTextTask: Task<Void, Never>?
     private var translationGeneration = 0
     private var translationCache = TranslationCache(limit: 80)
 
@@ -54,6 +57,8 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(localPopoverDismissMonitor)
         }
         translationTask?.cancel()
+        screenTextTask?.cancel()
+        screenTextCapture.cancel()
     }
 
     private func configureStatusItem() {
@@ -97,6 +102,15 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         directionItem.target = self
         directionItem.keyEquivalentModifierMask = UserSettings.translationDirectionShortcut?.menuModifierMask ?? []
         menu.addItem(directionItem)
+
+        let screenTextItem = NSMenuItem(
+            title: "屏幕取词（OCR）",
+            action: #selector(captureScreenText),
+            keyEquivalent: UserSettings.screenTextShortcut?.keyEquivalent ?? ""
+        )
+        screenTextItem.target = self
+        screenTextItem.keyEquivalentModifierMask = UserSettings.screenTextShortcut?.menuModifierMask ?? []
+        menu.addItem(screenTextItem)
 
         let preferencesItem = NSMenuItem(
             title: "偏好设置...",
@@ -209,6 +223,8 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             self?.toggleTranslationEnabled()
         } onTranslationDirectionToggle: { [weak self] in
             self?.toggleTranslationDirection()
+        } onScreenTextCapture: { [weak self] in
+            self?.captureScreenText()
         }
 
         do {
@@ -234,6 +250,10 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             registrations.append(.init(action: .toggleTranslationDirection, shortcut: shortcut))
         }
 
+        if let shortcut = UserSettings.screenTextShortcut {
+            registrations.append(.init(action: .captureScreenText, shortcut: shortcut))
+        }
+
         return registrations
     }
 
@@ -255,6 +275,13 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
     }
 
     private func handleGlobalMouseEvent(isMouseDown: Bool, clickCount: Int, location: NSPoint) {
+        if isScreenTextCaptureGesture {
+            if !isMouseDown {
+                isScreenTextCaptureGesture = false
+            }
+            return
+        }
+
         if isMouseDown {
             lastMouseDownLocation = location
             return
@@ -304,23 +331,7 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
             return
         }
 
-        switch plan {
-        case .speakOriginalAndTranslateToChinese(let text):
-            speakIfNeeded(text)
-            translateIfNeeded(
-                text,
-                direction: .englishToChinese,
-                speechPolicy: .never,
-                near: NSEvent.mouseLocation
-            )
-        case .translateToEnglishAndSpeakResult(let text):
-            translateIfNeeded(
-                text,
-                direction: .chineseToEnglish,
-                speechPolicy: .whenTranslationArrives,
-                near: NSEvent.mouseLocation
-            )
-        }
+        executeTranslationPlan(plan, near: NSEvent.mouseLocation)
     }
 
     private func selectedTextFromFocusedElement() -> String? {
@@ -410,13 +421,40 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         speaker.speak(utterance)
     }
 
+    private func executeTranslationPlan(
+        _ plan: SelectionTranslationPlan,
+        near location: NSPoint,
+        forceTranslation: Bool = false
+    ) {
+        switch plan {
+        case .speakOriginalAndTranslateToChinese(let text):
+            speakIfNeeded(text)
+            translateIfNeeded(
+                text,
+                direction: .englishToChinese,
+                speechPolicy: .never,
+                near: location,
+                forceTranslation: forceTranslation
+            )
+        case .translateToEnglishAndSpeakResult(let text):
+            translateIfNeeded(
+                text,
+                direction: .chineseToEnglish,
+                speechPolicy: .whenTranslationArrives,
+                near: location,
+                forceTranslation: forceTranslation
+            )
+        }
+    }
+
     private func translateIfNeeded(
         _ text: String,
         direction: TranslationDirection,
         speechPolicy: TranslationResultSpeechPolicy,
-        near location: NSPoint
+        near location: NSPoint,
+        forceTranslation: Bool = false
     ) {
-        guard isTranslationEnabled else {
+        guard isTranslationEnabled || forceTranslation else {
             return
         }
 
@@ -532,6 +570,69 @@ final class SelectionSpeakerApp: NSObject, NSApplicationDelegate {
         speaker.stopSpeaking(at: .immediate)
         translationPopover.hide()
         refreshMenu()
+    }
+
+    @objc private func captureScreenText() {
+        guard !screenTextCapture.isCapturing else {
+            return
+        }
+
+        isScreenTextCaptureGesture = true
+        let started = screenTextCapture.begin(at: NSEvent.mouseLocation) { [weak self] selection in
+            self?.isScreenTextCaptureGesture = false
+            self?.recognizeScreenText(in: selection)
+        } onCancel: { [weak self] in
+            self?.isScreenTextCaptureGesture = false
+        }
+
+        guard !started else {
+            return
+        }
+
+        isScreenTextCaptureGesture = false
+        showMessage(
+            "需要屏幕录制权限",
+            informativeText: "请在系统设置的“隐私与安全性 → 屏幕录制”中允许“划词朗读器”，然后再次使用屏幕取词。"
+        )
+    }
+
+    private func recognizeScreenText(in selection: ScreenTextCaptureOverlay.Selection) {
+        screenTextTask?.cancel()
+        screenTextTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(60))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            guard let image = ScreenTextCaptureOverlay.captureImage(in: selection.screenRect) else {
+                translationPopover.showError("无法截取当前屏幕区域", at: selection.resultLocation)
+                return
+            }
+
+            do {
+                let text = try ScreenTextRecognizer().recognizeText(in: image)
+                guard let plan = SelectionTranslationPlanner.plan(
+                    from: text,
+                    direction: .chineseToEnglish
+                ) else {
+                    translationPopover.showError("没有识别到中英文文字，请重新框选字幕或单词。", at: selection.resultLocation)
+                    return
+                }
+
+                guard ensureAPIKeyIsConfigured() else {
+                    translationPopover.showError("请先设置 DeepSeek API Key", at: selection.resultLocation)
+                    return
+                }
+
+                executeTranslationPlan(
+                    plan,
+                    near: selection.resultLocation,
+                    forceTranslation: true
+                )
+            } catch {
+                translationPopover.showError(error.localizedDescription, at: selection.resultLocation)
+            }
+        }
     }
 
     @objc private func setDeepSeekAPIKey() {

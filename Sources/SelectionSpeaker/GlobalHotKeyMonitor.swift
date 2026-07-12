@@ -7,6 +7,7 @@ final class GlobalHotKeyMonitor {
         case toggleReading = 1
         case toggleTranslation = 2
         case toggleTranslationDirection = 3
+        case captureScreenText = 4
     }
 
     struct Registration {
@@ -17,6 +18,7 @@ final class GlobalHotKeyMonitor {
     private let onReadingToggle: @MainActor () -> Void
     private let onTranslationToggle: @MainActor () -> Void
     private let onTranslationDirectionToggle: @MainActor () -> Void
+    private let onScreenTextCapture: @MainActor () -> Void
     private var registrations: [Registration]
     private var eventHandler: EventHandlerRef?
     private var hotKeys: [EventHotKeyRef] = []
@@ -25,12 +27,14 @@ final class GlobalHotKeyMonitor {
         registrations: [Registration],
         onReadingToggle: @escaping @MainActor () -> Void,
         onTranslationToggle: @escaping @MainActor () -> Void,
-        onTranslationDirectionToggle: @escaping @MainActor () -> Void
+        onTranslationDirectionToggle: @escaping @MainActor () -> Void,
+        onScreenTextCapture: @escaping @MainActor () -> Void
     ) {
         self.registrations = registrations
         self.onReadingToggle = onReadingToggle
         self.onTranslationToggle = onTranslationToggle
         self.onTranslationDirectionToggle = onTranslationDirectionToggle
+        self.onScreenTextCapture = onScreenTextCapture
     }
 
     func start() throws {
@@ -129,6 +133,8 @@ final class GlobalHotKeyMonitor {
             onTranslationToggle()
         case .toggleTranslationDirection:
             onTranslationDirectionToggle()
+        case .captureScreenText:
+            onScreenTextCapture()
         case nil:
             break
         }
