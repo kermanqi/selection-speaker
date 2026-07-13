@@ -8,7 +8,6 @@ enum UserSettings {
     private static let readingShortcutKey = "hotKey.reading"
     private static let translationShortcutKey = "hotKey.translation"
     private static let translationDirectionShortcutKey = "hotKey.translationDirection"
-    private static let screenTextShortcutKey = "hotKey.screenText"
     private static let systemPromptKey = "translation.prompt.system"
     private static let userPromptTemplateKey = "translation.prompt.userTemplate"
 
@@ -72,15 +71,6 @@ enum UserSettings {
         }
         set {
             setShortcut(newValue, forKey: translationDirectionShortcutKey)
-        }
-    }
-
-    static var screenTextShortcut: HotKeyShortcut? {
-        get {
-            shortcut(forKey: screenTextShortcutKey)
-        }
-        set {
-            setShortcut(newValue, forKey: screenTextShortcutKey)
         }
     }
 
